@@ -1,0 +1,2315 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Exact Dubai Landmarks 3D Generator (Matching Reference Images)</title>
+  <style>
+    body {
+      background: #07061d;
+      color: #f1f5f9;
+      font-family: sans-serif;
+      padding: 24px;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+
+    #log {
+      background: #0d0b25;
+      border: 1px solid #1e293b;
+      padding: 16px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 480px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    .success {
+      color: #4ade80;
+      font-weight: bold;
+    }
+
+    .info {
+      color: #38bdf8;
+    }
+
+    .error {
+      color: #f87171;
+      font-weight: bold;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+
+<body>
+  <h1>Generating Exact 3D Models Matching Reference Images...</h1>
+  <div id="log">Initializing Three.js & GLTFExporter...<br></div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+
+    const logEl = document.getElementById("log");
+    function log(msg, type = "info") {
+      logEl.innerHTML += `<div class="${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    const exporter = new GLTFExporter();
+    async function saveModel(sceneObj, fileName, folder = "dubai-buildings-v2") {
+      log(`Exporting ${fileName}...`);
+      return new Promise((resolve, reject) => {
+        exporter.parse(
+          sceneObj,
+          async (glbBuffer) => {
+            try {
+              let binary = "";
+              const bytes = new Uint8Array(glbBuffer);
+              const len = bytes.byteLength;
+              for (let i = 0; i < len; i += 8192) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
+              }
+              const base64 = btoa(binary);
+
+              let saved = false;
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                  const res = await fetch("/api/save-glb", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: fileName, buffer: base64, folder })
+                  });
+                  const json = await res.json();
+                  if (json.success) {
+                    log(`✓ Saved ${fileName} (${(json.size / 1024).toFixed(1)} KB)`, "success");
+                    saved = true;
+                    resolve(json);
+                    break;
+                  } else {
+                    throw new Error(json.error || "Failed to save");
+                  }
+                } catch (err) {
+                  if (attempt === 3) throw err;
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+              }
+            } catch (err) {
+              log(`✗ Error saving ${fileName}: ${err.message}`, "error");
+              reject(err);
+            }
+          },
+          (err) => {
+            log(`✗ GLTFExporter error on ${fileName}: ${err}`, "error");
+            reject(err);
+          },
+          { binary: true }
+        );
+      });
+    }
+
+    // =========================================================================
+    // 1. TEXTURE GENERATORS MATCHING REFERENCE IMAGES
+    // =========================================================================
+
+    // Generic Curtain Wall Texture
+    function createCurtainWallTexture(options = {}) {
+      const {
+        width = 1024,
+        height = 1024,
+        floors = 32,
+        bays = 16,
+        theme = "gold",
+        darkGlass = "#1c140c",
+      } = options;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      ctx.fillStyle = darkGlass;
+      ctx.fillRect(0, 0, width, height);
+
+      const floorH = height / floors;
+      const bayW = width / bays;
+
+      for (let f = 0; f < floors; f++) {
+        const y = f * floorH;
+        ctx.fillStyle = "#334155";
+        ctx.fillRect(0, y, width, 2);
+
+        for (let b = 0; b < bays; b++) {
+          const x = b * bayW;
+          ctx.fillStyle = "#1e293b";
+          ctx.fillRect(x, y, 2, floorH);
+
+          if (Math.random() < 0.7) {
+            ctx.fillStyle = theme === "gold" ? (Math.random() < 0.5 ? "#fde047" : "#fbbf24") : "#e0f2fe";
+            ctx.fillRect(x + 3, y + 3, bayW - 6, floorH - 5);
+          }
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      return { texture, canvas };
+    }
+
+    // Texture 1: Burj Khalifa (Matching Image 1)
+    // Texture 1: Burj Khalifa (Vibrant Neon Nocturnal Glass matching Reference Image)
+    // Deep nocturnal purple/sapphire glass, glowing neon cyan mullions, electric blue windows
+    function createBurjKhalifaTexture() {
+      const width = 1024;
+      const height = 2048;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      // Deep nocturnal sapphire glass gradient
+      const bgGrad = ctx.createLinearGradient(0, 0, width, 0);
+      bgGrad.addColorStop(0, "#0b0c26");
+      bgGrad.addColorStop(0.25, "#131644");
+      bgGrad.addColorStop(0.5, "#19215c");
+      bgGrad.addColorStop(0.75, "#121442");
+      bgGrad.addColorStop(1, "#08091e");
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Fine glowing horizontal neon floor lines every 14px
+      for (let y = 0; y < height; y += 14) {
+        ctx.strokeStyle = y % 56 === 0 ? "rgba(0, 240, 255, 0.8)" : "rgba(56, 189, 248, 0.35)";
+        ctx.lineWidth = y % 56 === 0 ? 3 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      // Vertical architectural neon spine pinstripes
+      for (let x = 0; x < width; x += 32) {
+        ctx.strokeStyle = x % 128 === 0 ? "rgba(0, 240, 255, 0.95)" : "rgba(30, 41, 75, 0.8)";
+        ctx.lineWidth = x % 128 === 0 ? 4 : 2;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+
+      // Brilliant glowing window matrices (vibrant electric cyan & neon magenta/violet)
+      for (let y = 6; y < height; y += 28) {
+        for (let x = 4; x < width; x += 32) {
+          if (Math.random() < 0.65) {
+            const isMagenta = Math.random() < 0.25;
+            ctx.fillStyle = isMagenta ? "rgba(217, 70, 239, 0.9)" : "rgba(0, 240, 255, 0.95)";
+            ctx.fillRect(x + 2, y + 2, 22, 10);
+          }
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      return { texture, canvas };
+    }
+
+    // Texture 2: Museum of the Future (Matching Reference Image with Radiant Neon Calligraphy)
+    // Titanium-silver curved shell with brilliant glowing white & neon-cyan Arabic calligraphy ribbons
+    function createExactMotfTexture() {
+      const width = 2048;
+      const height = 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      // 1. Sleek metallic titanium gradient base
+      const grad = ctx.createLinearGradient(0, 0, width, height);
+      grad.addColorStop(0.0, "#475569");
+      grad.addColorStop(0.2, "#64748b");
+      grad.addColorStop(0.4, "#94a3b8");
+      grad.addColorStop(0.65, "#cbd5e1");
+      grad.addColorStop(0.85, "#64748b");
+      grad.addColorStop(1.0, "#334155");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+
+      // 2. Fine anisotropic brushed stainless steel micro-grain
+      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+      for (let y = 0; y < height; y += 3) {
+        if (Math.random() < 0.65) ctx.fillRect(0, y, width, 1.2);
+      }
+
+      // 3. Laser-cut curved titanium panel joint seams
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.4)";
+      ctx.lineWidth = 1.5;
+      for (let x = 0; x < width; x += 44) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.bezierCurveTo(x + 32, height * 0.35, x - 32, height * 0.65, x + 40, height);
+        ctx.stroke();
+      }
+
+      // -----------------------------------------------------------------------
+      // RADIANT NEON CALLIGRAPHIC RIBBON SYSTEM (MATCHING REFERENCE IMAGE)
+      // Brilliant glowing white core with electric cyan neon aura
+      // -----------------------------------------------------------------------
+      function drawArchitecturalRibbon(points, widthStroke = 20, glowIntensity = 18) {
+        if (points.length < 4) return;
+
+        // 1. Recessed dark shadow channel
+        ctx.strokeStyle = "#080c14";
+        ctx.lineWidth = widthStroke + 4;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length - 2; i += 3) {
+          ctx.bezierCurveTo(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, points[i + 2].x, points[i + 2].y);
+        }
+        ctx.stroke();
+
+        // 2. Neon cyan outer aura glow
+        ctx.strokeStyle = "rgba(0, 240, 255, 0.85)";
+        ctx.lineWidth = widthStroke;
+        ctx.shadowColor = "#00f0ff";
+        ctx.shadowBlur = glowIntensity;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length - 2; i += 3) {
+          ctx.bezierCurveTo(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, points[i + 2].x, points[i + 2].y);
+        }
+        ctx.stroke();
+
+        // 3. Brilliant glowing pure white core line
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = Math.max(4, widthStroke * 0.35);
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length - 2; i += 3) {
+          ctx.bezierCurveTo(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, points[i + 2].x, points[i + 2].y);
+        }
+        ctx.stroke();
+      }
+
+      // Elegant sweeping calligraphic ribbon paths across the torus shell (NO ARABIC AYATS)
+      // Group 1: Upper arching roof ribbons (flowing along top curvature)
+      drawArchitecturalRibbon([
+        { x: 100, y: 150 }, { x: 380, y: 80 }, { x: 740, y: 90 }, { x: 1080, y: 130 },
+        { x: 1320, y: 160 }, { x: 1540, y: 220 }, { x: 1720, y: 310 }
+      ], 22);
+
+      drawArchitecturalRibbon([
+        { x: 220, y: 210 }, { x: 520, y: 140 }, { x: 880, y: 150 }, { x: 1220, y: 200 },
+        { x: 1460, y: 250 }, { x: 1680, y: 330 }, { x: 1820, y: 410 }
+      ], 19);
+
+      drawArchitecturalRibbon([
+        { x: 160, y: 95 }, { x: 440, y: 55 }, { x: 780, y: 65 }, { x: 1100, y: 100 },
+        { x: 1360, y: 135 }, { x: 1580, y: 190 }, { x: 1760, y: 260 }
+      ], 17);
+
+      // Group 2: Left bulbous flank cascades (broad sweeping curves hugging the outer egg form)
+      drawArchitecturalRibbon([
+        { x: 120, y: 290 }, { x: 280, y: 350 }, { x: 350, y: 520 }, { x: 260, y: 680 },
+        { x: 180, y: 780 }, { x: 120, y: 840 }, { x: 90, y: 880 }
+      ], 24);
+
+      drawArchitecturalRibbon([
+        { x: 250, y: 340 }, { x: 420, y: 410 }, { x: 460, y: 580 }, { x: 360, y: 720 },
+        { x: 260, y: 810 }, { x: 190, y: 860 }, { x: 150, y: 900 }
+      ], 22);
+
+      drawArchitecturalRibbon([
+        { x: 390, y: 380 }, { x: 540, y: 440 }, { x: 560, y: 600 }, { x: 460, y: 740 },
+        { x: 350, y: 830 }, { x: 270, y: 880 }, { x: 220, y: 920 }
+      ], 20);
+
+      drawArchitecturalRibbon([
+        { x: 80, y: 410 }, { x: 170, y: 480 }, { x: 220, y: 620 }, { x: 140, y: 750 },
+        { x: 80, y: 820 }, { x: 50, y: 860 }, { x: 30, y: 890 }
+      ], 18);
+
+      // Group 3: Void eye perimeter ribbons (sweeping around the central opening)
+      drawArchitecturalRibbon([
+        { x: 580, y: 270 }, { x: 840, y: 240 }, { x: 1140, y: 270 }, { x: 1380, y: 340 },
+        { x: 1560, y: 420 }, { x: 1680, y: 490 }, { x: 1740, y: 540 }
+      ], 21);
+
+      drawArchitecturalRibbon([
+        { x: 560, y: 740 }, { x: 820, y: 760 }, { x: 1120, y: 730 }, { x: 1360, y: 650 },
+        { x: 1540, y: 580 }, { x: 1660, y: 530 }, { x: 1720, y: 490 }
+      ], 21);
+
+      drawArchitecturalRibbon([
+        { x: 520, y: 430 }, { x: 580, y: 500 }, { x: 590, y: 580 }, { x: 540, y: 660 },
+        { x: 470, y: 720 }, { x: 380, y: 770 }, { x: 310, y: 800 }
+      ], 19);
+
+      // Group 4: Right aerodynamic tapered nose ribbons (converging into the forward point)
+      drawArchitecturalRibbon([
+        { x: 1320, y: 280 }, { x: 1560, y: 340 }, { x: 1780, y: 430 }, { x: 1920, y: 500 },
+        { x: 1980, y: 530 }, { x: 2010, y: 540 }, { x: 2030, y: 545 }
+      ], 20);
+
+      drawArchitecturalRibbon([
+        { x: 1360, y: 660 }, { x: 1600, y: 610 }, { x: 1800, y: 560 }, { x: 1940, y: 520 },
+        { x: 1990, y: 510 }, { x: 2015, y: 510 }, { x: 2030, y: 515 }
+      ], 19);
+
+      drawArchitecturalRibbon([
+        { x: 1240, y: 330 }, { x: 1480, y: 390 }, { x: 1660, y: 460 }, { x: 1780, y: 510 },
+        { x: 1860, y: 535 }, { x: 1920, y: 545 }, { x: 1960, y: 550 }
+      ], 18);
+
+      drawArchitecturalRibbon([
+        { x: 1260, y: 610 }, { x: 1500, y: 570 }, { x: 1680, y: 530 }, { x: 1800, y: 510 },
+        { x: 1870, y: 500 }, { x: 1925, y: 495 }, { x: 1960, y: 495 }
+      ], 18);
+
+      // Group 5: Bottom foundation ribbons (running along base curve)
+      drawArchitecturalRibbon([
+        { x: 200, y: 860 }, { x: 520, y: 880 }, { x: 880, y: 890 }, { x: 1240, y: 860 },
+        { x: 1480, y: 810 }, { x: 1660, y: 740 }, { x: 1780, y: 680 }
+      ], 22);
+
+      drawArchitecturalRibbon([
+        { x: 310, y: 920 }, { x: 640, y: 940 }, { x: 980, y: 940 }, { x: 1320, y: 900 },
+        { x: 1540, y: 840 }, { x: 1700, y: 780 }, { x: 1810, y: 720 }
+      ], 20);
+
+      // Group 6: Diagonal cross-accent flourishes (dynamic structural ribbon bridges)
+      const diagonalFlourishes = [
+        [{ x: 420, y: 220 }, { x: 600, y: 280 }, { x: 740, y: 380 }, { x: 820, y: 450 }],
+        [{ x: 340, y: 580 }, { x: 480, y: 630 }, { x: 660, y: 680 }, { x: 820, y: 710 }],
+        [{ x: 920, y: 220 }, { x: 1080, y: 260 }, { x: 1260, y: 340 }, { x: 1380, y: 420 }],
+        [{ x: 880, y: 800 }, { x: 1060, y: 760 }, { x: 1240, y: 700 }, { x: 1380, y: 620 }],
+        [{ x: 620, y: 320 }, { x: 720, y: 420 }, { x: 740, y: 540 }, { x: 680, y: 620 }],
+      ];
+      for (const df of diagonalFlourishes) {
+        drawArchitecturalRibbon(df, 17, 8);
+      }
+
+      // Group 7: Architectural LED perforation node matrix along panel seams
+      ctx.fillStyle = "#080c14";
+      for (let i = 0; i < 64; i++) {
+        const px = 120 + (i * 31.7) % 1820;
+        const py = 140 + (i * 23.3) % 760;
+        ctx.beginPath();
+        ctx.arc(px, py, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+        ctx.shadowColor = "#38bdf8";
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(px, py, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#080c14";
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      return { texture, canvas };
+    }
+
+    // Texture 4: Nocturnal Water with Neon Skyline Reflections (Matching Reference Image)
+    function createWaterTexture() {
+      const width = 2048;
+      const height = 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      // Deep nocturnal bay navy water gradient
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+      bgGrad.addColorStop(0, "#080a22");
+      bgGrad.addColorStop(0.35, "#0e143b");
+      bgGrad.addColorStop(0.7, "#141a4a");
+      bgGrad.addColorStop(1, "#0a0c28");
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Neon light reflection columns mirroring the skyline landmarks above
+      // 1. Burj Khalifa reflection column (left-center, x ~ 400): vibrant electric cyan and hot magenta/purple
+      const burjRefGrad = ctx.createLinearGradient(400, 0, 400, height);
+      burjRefGrad.addColorStop(0.0, "rgba(56, 189, 248, 0.85)"); // cyan
+      burjRefGrad.addColorStop(0.2, "rgba(168, 85, 247, 0.7)");  // violet
+      burjRefGrad.addColorStop(0.45, "rgba(236, 72, 153, 0.55)"); // magenta
+      burjRefGrad.addColorStop(0.8, "rgba(56, 189, 248, 0.25)");
+      burjRefGrad.addColorStop(1.0, "transparent");
+
+      // 2. Towers reflection column (x ~ 720)
+      const towerRefGrad = ctx.createLinearGradient(720, 0, 720, height);
+      towerRefGrad.addColorStop(0.0, "rgba(192, 132, 252, 0.65)");
+      towerRefGrad.addColorStop(0.3, "rgba(56, 189, 248, 0.45)");
+      towerRefGrad.addColorStop(0.7, "rgba(245, 158, 11, 0.3)");
+      towerRefGrad.addColorStop(1.0, "transparent");
+
+      // 3. Center MOTF silver/cyan reflection (x ~ 1024)
+      const motfRefGrad = ctx.createLinearGradient(1024, 0, 1024, height);
+      motfRefGrad.addColorStop(0.0, "rgba(203, 213, 225, 0.65)");
+      motfRefGrad.addColorStop(0.3, "rgba(56, 189, 248, 0.4)");
+      motfRefGrad.addColorStop(0.8, "transparent");
+
+      // 4. Burj Al Arab reflection column (x ~ 1520) - ice-blue & white sail glow
+      const baaRefGrad = ctx.createLinearGradient(1520, 0, 1520, height);
+      baaRefGrad.addColorStop(0.0, "rgba(56, 189, 248, 0.8)");
+      baaRefGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.6)");
+      baaRefGrad.addColorStop(0.6, "rgba(168, 85, 247, 0.4)");
+      baaRefGrad.addColorStop(1.0, "transparent");
+
+      function drawReflectionBeam(centerX, widthBeam, grad) {
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(centerX, height * 0.35, widthBeam, height * 0.42, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      drawReflectionBeam(400, 160, burjRefGrad);
+      drawReflectionBeam(720, 120, towerRefGrad);
+      drawReflectionBeam(1024, 130, motfRefGrad);
+      drawReflectionBeam(1520, 160, baaRefGrad);
+
+      // Fine specular horizontal ripple wave lines (as seen in the reference image)
+      for (let y = 0; y < height; y += 4) {
+        const rowAlpha = Math.sin((y / height) * Math.PI) * 0.7;
+        ctx.lineWidth = Math.random() < 0.25 ? 2.5 : 1.2;
+
+        // Ripples along the left reflection beam (cyan/magenta)
+        if (y < height * 0.9) {
+          ctx.strokeStyle = `rgba(56, 189, 248, ${0.45 * rowAlpha})`;
+          ctx.beginPath();
+          ctx.moveTo(220 + Math.sin(y * 0.1) * 25, y);
+          ctx.lineTo(580 + Math.sin(y * 0.08) * 35, y);
+          ctx.stroke();
+
+          ctx.strokeStyle = `rgba(236, 72, 153, ${0.35 * rowAlpha})`;
+          ctx.beginPath();
+          ctx.moveTo(320 + Math.sin(y * 0.14) * 20, y);
+          ctx.lineTo(480 + Math.sin(y * 0.11) * 25, y);
+          ctx.stroke();
+        }
+
+        // Ripples along the right reflection beam (cyan/white)
+        if (y < height * 0.9) {
+          ctx.strokeStyle = `rgba(56, 189, 248, ${0.45 * rowAlpha})`;
+          ctx.beginPath();
+          ctx.moveTo(1360 + Math.sin(y * 0.12) * 25, y);
+          ctx.lineTo(1700 + Math.sin(y * 0.09) * 35, y);
+          ctx.stroke();
+
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 * rowAlpha})`;
+          ctx.beginPath();
+          ctx.moveTo(1440 + Math.sin(y * 0.17) * 15, y);
+          ctx.lineTo(1600 + Math.sin(y * 0.13) * 20, y);
+          ctx.stroke();
+        }
+
+        // Ambient dark purple water ripple streaks everywhere
+        ctx.strokeStyle = `rgba(168, 85, 247, ${0.18 * rowAlpha})`;
+        const rx = Math.random() * (width - 240);
+        ctx.beginPath();
+        ctx.moveTo(rx, y);
+        ctx.lineTo(rx + 80 + Math.random() * 140, y);
+        ctx.stroke();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      return { texture, canvas };
+    }
+
+    // Texture 5: Nocturnal Velvet Violet-Purple Desert Dunes (Matching Reference Image)
+    function createDuneTexture() {
+      const width = 2048;
+      const height = 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      // Nocturnal violet-purple gradient matching reference composite
+      const grad = ctx.createLinearGradient(0, 0, 0, height);
+      grad.addColorStop(0.0, "#3a1d94"); // ridge crest highlight
+      grad.addColorStop(0.22, "#2b1473"); // rich nocturnal purple
+      grad.addColorStop(0.6, "#1d0e52"); // deep velvet purple
+      grad.addColorStop(1.0, "#10082c"); // midnight shadow base
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Fine desert sand wind ripple striations
+      ctx.strokeStyle = "rgba(192, 132, 252, 0.14)";
+      ctx.lineWidth = 1.5;
+      for (let y = 8; y < height; y += 10) {
+        ctx.beginPath();
+        const amp = 6;
+        ctx.moveTo(0, y + Math.sin(0) * amp);
+        for (let x = 20; x <= width; x += 30) {
+          ctx.lineTo(x, y + Math.sin(x * 0.012 + y * 0.05) * amp);
+        }
+        ctx.stroke();
+      }
+
+      // Subtle luminous starlight / sand glitter sparkles along upper crest
+      ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
+      for (let i = 0; i < 450; i++) {
+        const sx = Math.random() * width;
+        const sy = Math.random() * (height * 0.45);
+        const r = Math.random() * 1.5 + 0.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      return { texture, canvas };
+    }
+
+    // Texture 3: Burj Al Arab (Matching Image 3)
+    // Curved blue glass bays with white horizontal floor plates & reflective diagonal water highlights
+    function createBurjAlArabWatercolorTexture() {
+      const width = 1024;
+      const height = 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      // Deep rich blue glass watercolor gradient (as in Image 3)
+      const grad = ctx.createLinearGradient(0, height, 0, 0);
+      grad.addColorStop(0, "#0369a1");
+      grad.addColorStop(0.3, "#0284c7");
+      grad.addColorStop(0.6, "#38bdf8");
+      grad.addColorStop(1, "#bae6fd");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+
+      // 5 Major horizontal floor sections with thick white structural bands (like Image 3)
+      const numSections = 5;
+      const secH = height / numSections;
+
+      for (let s = 0; s < numSections; s++) {
+        const y = s * secH;
+
+        // White horizontal structural beam
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, y, width, 18);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillRect(0, y + 18, width, 4);
+
+        // Sub-floor lines within each section
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.lineWidth = 3;
+        for (let subY = y + 40; subY < y + secH; subY += 28) {
+          ctx.beginPath();
+          ctx.moveTo(0, subY);
+          ctx.lineTo(width, subY);
+          ctx.stroke();
+        }
+
+        // Vertical window mullions
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.lineWidth = 4;
+        for (let x = 40; x < width; x += 55) {
+          ctx.beginPath();
+          ctx.moveTo(x, y + 18);
+          ctx.lineTo(x, y + secH);
+          ctx.stroke();
+        }
+
+        // White diagonal reflective slash (signature watercolor highlight from Image 3)
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.moveTo(width * 0.15, y + secH * 0.85);
+        ctx.lineTo(width * 0.55, y + secH * 0.2);
+        ctx.stroke();
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      return { texture, canvas };
+    }
+
+    const bkMatData = createBurjKhalifaTexture();
+    const motfMatData = createExactMotfTexture();
+    const baaMatData = createBurjAlArabWatercolorTexture();
+    const waterMatData = createWaterTexture();
+    const duneMatData = createDuneTexture();
+
+    // =========================================================================
+    // 2. BURJ KHALIFA (EXACTLY MATCHING IMAGE 1)
+    // Multi-tubular stepped columns, rounded cylinder wings, distinct orange collar, sharp pinnacle needle
+    // =========================================================================
+    function buildExactBurjKhalifa() {
+      const group = new THREE.Group();
+      group.name = "burj_khalifa_root";
+
+      const glassMat = new THREE.MeshStandardMaterial({
+        map: bkMatData.texture,
+        emissiveMap: bkMatData.texture,
+        emissive: new THREE.Color(0x00f0ff),
+        emissiveIntensity: 0.9,
+        metalness: 0.85,
+        roughness: 0.15,
+        color: 0xffffff,
+      });
+
+      const whiteMullionMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x00f0ff,
+        emissiveIntensity: 0.8,
+        metalness: 0.95,
+        roughness: 0.1,
+      });
+
+      // Orange/Coral collar material matching Image 1
+      const orangeCollarMat = new THREE.MeshStandardMaterial({
+        color: 0xf97316,
+        emissive: 0xea580c,
+        emissiveIntensity: 0.7,
+        metalness: 0.6,
+        roughness: 0.25,
+      });
+
+      const spireNeedleMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x00f0ff,
+        emissiveIntensity: 1.4,
+        metalness: 0.96,
+        roughness: 0.08,
+      });
+
+      // Stepped tubular columns matching Image 1 silhouette:
+      // Left columns: 4 setbacks of increasing height
+      // Center core: Tallest, leading to orange collar
+      // Right columns: 4 setbacks of staggered heights
+      const columns = [
+        // Left flank
+        { x: -2.2, z: 0.3, r: 0.45, h: 4.8 },
+        { x: -1.6, z: -0.2, r: 0.55, h: 9.6 },
+        { x: -1.0, z: 0.2, r: 0.62, h: 15.2 },
+        { x: -0.5, z: -0.1, r: 0.68, h: 21.0 },
+
+        // Center spine (tallest)
+        { x: 0.0, z: 0.0, r: 0.75, h: 24.5 },
+
+        // Right flank
+        { x: 0.5, z: 0.1, r: 0.68, h: 18.5 },
+        { x: 1.0, z: -0.2, r: 0.62, h: 13.8 },
+        { x: 1.6, z: 0.2, r: 0.55, h: 8.4 },
+        { x: 2.1, z: -0.1, r: 0.45, h: 3.8 },
+      ];
+
+      for (const col of columns) {
+        // Main cylinder column with rounded aerodynamic nose
+        const colGeo = new THREE.CylinderGeometry(col.r * 0.92, col.r, col.h, 24);
+        const colMesh = new THREE.Mesh(colGeo, glassMat);
+        colMesh.position.set(col.x, col.h / 2, col.z);
+        group.add(colMesh);
+
+        // Vertical white fin pinstripe along the outer edge (as in Image 1)
+        const finGeo = new THREE.BoxGeometry(0.06, col.h, 0.12);
+        const finMesh = new THREE.Mesh(finGeo, whiteMullionMat);
+        finMesh.position.set(col.x, col.h / 2, col.z + col.r);
+        group.add(finMesh);
+
+        // Terrace cap on top of column
+        const capGeo = new THREE.CylinderGeometry(col.r * 0.88, col.r * 0.92, 0.2, 24);
+        const capMesh = new THREE.Mesh(capGeo, whiteMullionMat);
+        capMesh.position.set(col.x, col.h + 0.1, col.z);
+        group.add(capMesh);
+      }
+
+      // Base: Flared tripartite pedestal with stepped buttresses (like Image 1)
+      const baseGeo = new THREE.CylinderGeometry(2.8, 3.8, 0.8, 24);
+      const baseMesh = new THREE.Mesh(baseGeo, whiteMullionMat);
+      baseMesh.position.y = 0.4;
+      group.add(baseMesh);
+
+      const footingsGeo = new THREE.BoxGeometry(7.2, 0.35, 1.8);
+      const footings = new THREE.Mesh(footingsGeo, whiteMullionMat);
+      footings.position.y = 0.18;
+      group.add(footings);
+
+      // Upper Spire Base - The Distinct Orange/Coral Collar Tier (Exact Image 1 feature!)
+      const collarGeo = new THREE.CylinderGeometry(0.42, 0.58, 2.8, 20);
+      const collar = new THREE.Mesh(collarGeo, orangeCollarMat);
+      collar.position.y = 24.5 + 1.4;
+      group.add(collar);
+
+      // Needle Spire on top (reaches up to y=32.5)
+      const spireGeo = new THREE.CylinderGeometry(0.06, 0.32, 5.2, 16);
+      const spire = new THREE.Mesh(spireGeo, spireNeedleMat);
+      spire.position.y = 24.5 + 2.8 + 2.6;
+      group.add(spire);
+
+      // Pinnacle beacon tip
+      const tipGeo = new THREE.SphereGeometry(0.1, 16, 16);
+      const tipMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const tip = new THREE.Mesh(tipGeo, tipMat);
+      tip.position.y = 24.5 + 2.8 + 5.2;
+      group.add(tip);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 3. MUSEUM OF THE FUTURE (EXACTLY MATCHING ARCHITECTURAL LONGITUDINAL SECTION)
+    // Asymmetric oblong ellipse profile, offset elliptical void eye, internal elevator core & floor slabs,
+    // sloped green hill podium, and foundation piles matching the official section blueprint
+    // =========================================================================
+    function buildExactMuseumOfTheFuture() {
+      const group = new THREE.Group();
+      group.name = "museum_of_the_future_root";
+
+      // 1. Foundation Piles & Pile Cap (from blueprint section bottom)
+      const concreteMat = new THREE.MeshStandardMaterial({
+        color: 0x475569,
+        metalness: 0.3,
+        roughness: 0.7,
+      });
+
+      const pileCapGeo = new THREE.BoxGeometry(4.2, 0.6, 2.8);
+      const pileCap = new THREE.Mesh(pileCapGeo, concreteMat);
+      pileCap.position.set(-1.2, 0.3, 0);
+      group.add(pileCap);
+
+      // 5 concrete foundation piles driven into ground
+      for (let p = -1.6; p <= 1.6; p += 0.8) {
+        const pileGeo = new THREE.CylinderGeometry(0.18, 0.18, 1.2, 12);
+        const pile = new THREE.Mesh(pileGeo, concreteMat);
+        pile.position.set(-1.2 + p, -0.6, 0);
+        group.add(pile);
+      }
+
+      // 2. Sloped Landscaped Podium Hill (Matching Reference Image)
+      // Dark nocturnal knoll that blends seamlessly into the desert sand
+      const hillShape = new THREE.Shape();
+      hillShape.moveTo(-9.5, 0.0);
+      hillShape.bezierCurveTo(-6.5, 0.6, -3.5, 2.2, 0.0, 2.2);
+      hillShape.bezierCurveTo(3.5, 2.2, 6.5, 0.8, 9.5, 0.0);
+      hillShape.lineTo(9.5, -0.2);
+      hillShape.lineTo(-9.5, -0.2);
+      hillShape.closePath();
+
+      const hillExtrude = { depth: 5.5, bevelEnabled: true, bevelSegments: 3, steps: 1, bevelSize: 0.3, bevelThickness: 0.3 };
+      const hillGeo = new THREE.ExtrudeGeometry(hillShape, hillExtrude);
+      hillGeo.center();
+      const hillMat = new THREE.MeshStandardMaterial({
+        color: 0x140c30, // nocturnal velvet dark mound matching reference image
+        roughness: 0.9,
+        metalness: 0.08,
+      });
+      const hill = new THREE.Mesh(hillGeo, hillMat);
+      hill.position.set(0, 1.1, 0);
+      group.add(hill);
+
+      // Dark evergreen/slate landscape terrace trim
+      const turfTrimMat = new THREE.MeshStandardMaterial({ color: 0x111c26, roughness: 0.85 });
+      const turfTrim = new THREE.Mesh(new THREE.BoxGeometry(17.0, 0.15, 6.4), turfTrimMat);
+      turfTrim.position.y = 0.15;
+      group.add(turfTrim);
+
+      // Subtle warm ground uplights along the mound base
+      const markerMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      for (let s = -6; s <= 6; s += 2) {
+        const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.12, 8), markerMat);
+        marker.position.set(s, 0.22, 2.4);
+        group.add(marker);
+      }
+
+      // Stepping stones / ground pavers on right of mound
+      const stoneMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.7 });
+      for (let s = 0; s < 4; s++) {
+        const stoneMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.28, 0.06, 8), stoneMat);
+        stoneMesh.position.set(3.8 + s * 0.9, 0.28, 2.2);
+        group.add(stoneMesh);
+      }
+
+      // Podium terraces and glass entrance beneath the torus ring
+      const podiumBaseGeo = new THREE.BoxGeometry(14.5, 0.35, 6.2);
+      const podiumBase = new THREE.Mesh(podiumBaseGeo, concreteMat);
+      podiumBase.position.y = 0.18;
+      group.add(podiumBase);
+
+      const lobbyAtriumGeo = new THREE.CylinderGeometry(2.4, 2.8, 1.2, 24);
+      const lobbyAtriumMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.45,
+        roughness: 0.1,
+        metalness: 0.85,
+        transparent: true,
+        opacity: 0.8,
+      });
+      const lobbyAtrium = new THREE.Mesh(lobbyAtriumGeo, lobbyAtriumMat);
+      lobbyAtrium.position.set(0, 2.0, 0);
+      lobbyAtrium.scale.set(1.4, 1.0, 0.8);
+      group.add(lobbyAtrium);
+
+      // Spiral helix staircase in the central lobby (distinctive feature in blueprint section)
+      const helixCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 1.4, 0.6),
+        new THREE.Vector3(0.5, 1.8, 0.3),
+        new THREE.Vector3(0, 2.2, 0),
+        new THREE.Vector3(-0.5, 2.5, 0.3),
+        new THREE.Vector3(0, 2.8, 0.6),
+      ]);
+      const helixGeo = new THREE.TubeGeometry(helixCurve, 24, 0.08, 8, false);
+      const helixMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.9 });
+      const helix = new THREE.Mesh(helixGeo, helixMat);
+      group.add(helix);
+
+      // 3. The Exact Asymmetric Aerodynamic Torus Silhouette (Matching User Reference Image)
+      const ringShape = new THREE.Shape();
+      // Outer profile: bulbous rounded egg shape on left, sleek aerodynamic tapered nose on right
+      ringShape.moveTo(-7.2, 4.8);
+      ringShape.bezierCurveTo(-7.2, 2.6, -4.8, 1.4, -1.0, 1.4);
+      ringShape.bezierCurveTo(2.4, 1.4, 5.2, 2.3, 6.7, 3.5);
+      ringShape.bezierCurveTo(7.8, 4.3, 7.7, 5.3, 6.8, 6.0);
+      ringShape.bezierCurveTo(5.5, 7.0, 3.0, 8.0, -0.2, 8.3);
+      ringShape.bezierCurveTo(-3.6, 8.5, -6.4, 7.7, -7.1, 6.4);
+      ringShape.bezierCurveTo(-7.3, 5.9, -7.3, 5.3, -7.2, 4.8);
+      ringShape.closePath();
+
+      // Inner Eye Void Hole (Asymmetric teardrop void pushed toward the right as in user reference image)
+      const eyeHole = new THREE.Path();
+      eyeHole.moveTo(0.8, 5.0);
+      eyeHole.bezierCurveTo(1.4, 6.3, 3.4, 6.7, 4.8, 6.1);
+      eyeHole.bezierCurveTo(5.7, 5.4, 5.8, 4.5, 5.1, 3.8);
+      eyeHole.bezierCurveTo(4.2, 3.1, 2.2, 3.3, 1.2, 4.0);
+      eyeHole.bezierCurveTo(0.8, 4.3, 0.7, 4.7, 0.8, 5.0);
+      eyeHole.closePath();
+      ringShape.holes.push(eyeHole);
+
+      const ringExtrude = {
+        depth: 2.8,
+        bevelEnabled: true,
+        bevelSegments: 8,
+        steps: 2,
+        bevelSize: 0.7,
+        bevelThickness: 0.7,
+      };
+      const ringGeo = new THREE.ExtrudeGeometry(ringShape, ringExtrude);
+      ringGeo.center();
+
+      // Normalize UV mapping across the torus shape so the Arabic calligraphy spans the whole facade without repeating
+      ringGeo.computeBoundingBox();
+      const bbox = ringGeo.boundingBox;
+      const sizeX = bbox.max.x - bbox.min.x;
+      const sizeY = bbox.max.y - bbox.min.y;
+      const uvs = ringGeo.attributes.uv;
+      const positions = ringGeo.attributes.position;
+
+      for (let i = 0; i < positions.count; i++) {
+        const px = positions.getX(i);
+        const py = positions.getY(i);
+        const u = THREE.MathUtils.clamp((px - bbox.min.x) / sizeX, 0, 1);
+        const v = THREE.MathUtils.clamp((py - bbox.min.y) / sizeY, 0, 1);
+        uvs.setXY(i, u, v);
+      }
+      uvs.needsUpdate = true;
+
+      // Radiant Titanium Shell material with luminous neon calligraphy
+      const motfShellMat = new THREE.MeshStandardMaterial({
+        map: motfMatData.texture,
+        emissiveMap: motfMatData.texture,
+        emissive: new THREE.Color(0x38bdf8),
+        emissiveIntensity: 0.85,
+        color: 0x94a3b8,
+        metalness: 0.72,
+        roughness: 0.28,
+      });
+
+      const ringMesh = new THREE.Mesh(ringGeo, motfShellMat);
+      ringMesh.position.set(0, 5.6, 0);
+      group.add(ringMesh);
+
+      // Inner Eye Void Radiant Neon Edge Ring
+      const eyePoints = eyeHole.getPoints(64);
+      const eyeCenterOffset = ringGeo.boundingSphere ? ringGeo.boundingSphere.center : new THREE.Vector3();
+      const eyeRimGeo = new THREE.BufferGeometry().setFromPoints(eyePoints.map(p => new THREE.Vector3(p.x - 0.1, p.y + 0.6, 0)));
+      const eyeRimMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 4 });
+      const eyeRim = new THREE.LineLoop(eyeRimGeo, eyeRimMat);
+      group.add(eyeRim);
+
+      // 4. Internal Structural Elevator Core & Floor Slabs (visible in blueprint section)
+      const coreGeo = new THREE.BoxGeometry(0.8, 7.8, 1.8);
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: 0x334155,
+        metalness: 0.8,
+        roughness: 0.3,
+      });
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      core.position.set(-1.2, 5.5, 0);
+      group.add(core);
+
+      // Floor plates on left wing (6 exhibition levels from blueprint section)
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8 });
+      for (let f = 0; f < 6; f++) {
+        const floorY = 2.8 + f * 1.1;
+        const floorGeo = new THREE.BoxGeometry(2.4, 0.15, 1.6);
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.position.set(-2.8, floorY, 0);
+        group.add(floor);
+      }
+
+      // 5. Luminous Triangular Glass Entrance Pavilion (Signature feature from reference image)
+      const entranceGroup = new THREE.Group();
+      entranceGroup.position.set(0, 0.6, 2.9);
+
+      // Triangular glass canopy prism
+      const triShape = new THREE.Shape();
+      triShape.moveTo(0, 1.8);
+      triShape.lineTo(-1.8, 0);
+      triShape.lineTo(1.8, 0);
+      triShape.closePath();
+
+      const triGeo = new THREE.ExtrudeGeometry(triShape, {
+        depth: 1.6,
+        bevelEnabled: true,
+        bevelSize: 0.08,
+        bevelThickness: 0.08,
+      });
+      triGeo.center();
+      const triMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.85,
+        metalness: 0.6,
+        roughness: 0.15,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const triMesh = new THREE.Mesh(triGeo, triMat);
+      entranceGroup.add(triMesh);
+
+      // Glowing white architectural triangular perimeter frame
+      const triFramePts = [
+        new THREE.Vector3(0, 1.8, 0.85),
+        new THREE.Vector3(-1.8, 0, 0.85),
+        new THREE.Vector3(1.8, 0, 0.85),
+        new THREE.Vector3(0, 1.8, 0.85),
+      ];
+      const triFrameGeo = new THREE.BufferGeometry().setFromPoints(triFramePts);
+      const triFrameMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 });
+      const triFrame = new THREE.Line(triFrameGeo, triFrameMat);
+      entranceGroup.add(triFrame);
+
+      // Illuminated approach walkway ramp
+      const rampGeo = new THREE.BoxGeometry(2.6, 0.1, 3.2);
+      const rampMat = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.25,
+        roughness: 0.4,
+      });
+      const ramp = new THREE.Mesh(rampGeo, rampMat);
+      ramp.position.set(0, -0.05, 1.6);
+      entranceGroup.add(ramp);
+
+      group.add(entranceGroup);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 4. BURJ AL ARAB (EXACTLY MATCHING WIREFRAME / POLYGONAL MESH REFERENCE IMAGE)
+    // Wireframe space-frame geometry: sweeping curved arch, vertical mast, triangular truss lattice,
+    // cantilevered circular helipad on right, cantilevered triangular pod on left, pinnacle needle & radiating ground mesh
+    // =========================================================================
+    function buildExactBurjAlArab() {
+      const group = new THREE.Group();
+      group.name = "burj_al_arab_root";
+
+      // Architectural materials matching reference image
+      const sailMat = new THREE.MeshStandardMaterial({
+        color: 0xf8fafc,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.35,
+        roughness: 0.18,
+        metalness: 0.12,
+        side: THREE.DoubleSide,
+      });
+
+      const exoBlueMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x00f0ff,
+        emissiveIntensity: 0.65,
+        metalness: 0.88,
+        roughness: 0.15,
+      });
+
+      const whiteSteelMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        metalness: 0.92,
+        roughness: 0.1,
+      });
+
+      const glassBlueMat = new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        emissive: 0x0284c7,
+        emissiveIntensity: 0.45,
+        metalness: 0.85,
+        roughness: 0.1,
+      });
+
+      // 1. Base footprint podium
+      const baseGeo = new THREE.CylinderGeometry(2.8, 3.2, 0.4, 24);
+      const baseMesh = new THREE.Mesh(baseGeo, exoBlueMat);
+      baseMesh.position.y = 0.2;
+      group.add(baseMesh);
+
+      // 2. White Curved PTFE Sail Membrane
+      const sailShape = new THREE.Shape();
+      sailShape.moveTo(0, 0);
+      sailShape.quadraticCurveTo(-3.2, 7.5, 0.2, 16.5);
+      sailShape.lineTo(0.2, 0);
+      sailShape.closePath();
+
+      const sailExtrude = {
+        depth: 2.2,
+        bevelEnabled: true,
+        bevelSize: 0.1,
+        bevelThickness: 0.1,
+      };
+      const sailGeo = new THREE.ExtrudeGeometry(sailShape, sailExtrude);
+      sailGeo.center();
+      const sailMesh = new THREE.Mesh(sailGeo, sailMat);
+      sailMesh.position.set(-0.8, 8.4, 0);
+      group.add(sailMesh);
+
+      // Horizontal floor plates
+      for (let f = 1; f <= 14; f++) {
+        const floorY = f * 1.1;
+        const floorW = Math.max(0.6, 2.8 - (floorY / 16.5) * 2.2);
+        const floorGeo = new THREE.BoxGeometry(floorW, 0.08, 2.3);
+        const floorMesh = new THREE.Mesh(floorGeo, glassBlueMat);
+        floorMesh.position.set(-floorW / 2 + 0.1, floorY + 0.4, 0);
+        group.add(floorMesh);
+      }
+
+      // 3. Curved Outer Steel Exoskeleton Bow (Left arch)
+      const archCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-0.2, 0.2, 0),
+        new THREE.Vector3(-2.6, 5.0, 0),
+        new THREE.Vector3(-3.4, 10.5, 0),
+        new THREE.Vector3(-2.2, 15.0, 0),
+        new THREE.Vector3(0.4, 18.2, 0),
+      ]);
+      const archGeo = new THREE.TubeGeometry(archCurve, 36, 0.22, 12, false);
+      const archMesh = new THREE.Mesh(archGeo, exoBlueMat);
+      group.add(archMesh);
+
+      // Diagonal cross bracing ribs
+      for (let r = 0; r < 5; r++) {
+        const t1 = r / 5;
+        const t2 = (r + 1) / 5;
+        const p1 = archCurve.getPoint(t1);
+        const p2 = new THREE.Vector3(0.4, t2 * 17.5 + 0.4, 0);
+        const dir = new THREE.Vector3().subVectors(p2, p1);
+        const len = dir.length();
+        const ribGeo = new THREE.CylinderGeometry(0.08, 0.08, len, 8);
+        const ribMesh = new THREE.Mesh(ribGeo, exoBlueMat);
+        ribMesh.position.copy(p1).addScaledVector(dir, 0.5);
+        ribMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        group.add(ribMesh);
+      }
+
+      // 4. Vertical Central Mast Spire
+      const mastGeo = new THREE.CylinderGeometry(0.24, 0.28, 20.5, 16);
+      const mastMesh = new THREE.Mesh(mastGeo, whiteSteelMat);
+      mastMesh.position.set(0.4, 10.25, 0);
+      group.add(mastMesh);
+
+      // Spire tip beacon
+      const beaconGeo = new THREE.SphereGeometry(0.18, 12, 12);
+      const beaconMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+      const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+      beacon.position.set(0.4, 20.6, 0);
+      group.add(beacon);
+
+      // 5. Cantilevered Circular Helipad (on the right at ~75% height)
+      const helipadGeo = new THREE.CylinderGeometry(1.4, 1.4, 0.12, 24);
+      const helipadMesh = new THREE.Mesh(helipadGeo, exoBlueMat);
+      helipadMesh.position.set(1.9, 14.2, 0);
+      group.add(helipadMesh);
+
+      const helipadRingGeo = new THREE.TorusGeometry(1.4, 0.06, 8, 24);
+      helipadRingGeo.rotateX(Math.PI / 2);
+      const helipadRing = new THREE.Mesh(helipadRingGeo, whiteSteelMat);
+      helipadRing.position.set(1.9, 14.26, 0);
+      group.add(helipadRing);
+
+      // Support strut
+      const strutGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.8, 8);
+      const strutMesh = new THREE.Mesh(strutGeo, whiteSteelMat);
+      strutMesh.position.set(1.2, 13.5, 0);
+      strutMesh.rotation.z = Math.PI / 4;
+      group.add(strutMesh);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 5. JUMEIRAH EMIRATES TOWERS (EXACTLY MATCHING ARCHITECTURAL LONGITUDINAL SECTION)
+    // Twin equilateral triangular towers: Hotel Tower (shorter, left) & Office Tower (taller, right),
+    // 45° diagonal sloped crowns, mechanical plant rooms, vertical antenna spires & connecting boulevard
+    // =========================================================================
+    function buildExactJumeirahEmiratesTowers() {
+      const group = new THREE.Group();
+      group.name = "jumeirah_emirates_towers_root";
+
+      // Materials matching the bronze/copper & silver reflective curtain wall
+      const curtainBronze = createCurtainWallTexture({
+        theme: "gold",
+        floors: 54,
+        bays: 12,
+        darkGlass: "#1c140c",
+      });
+
+      const glassBronzeMat = new THREE.MeshStandardMaterial({
+        map: curtainBronze.texture,
+        emissiveMap: curtainBronze.texture,
+        emissive: new THREE.Color(0xfde047),
+        emissiveIntensity: 0.75,
+        metalness: 0.88,
+        roughness: 0.18,
+        color: 0x94a3b8,
+      });
+
+      const whiteSteelCrownMat = new THREE.MeshStandardMaterial({
+        color: 0xf8fafc,
+        metalness: 0.92,
+        roughness: 0.15,
+      });
+
+      const darkLouverMat = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        metalness: 0.8,
+        roughness: 0.4,
+      });
+
+      const concretePodiumMat = new THREE.MeshStandardMaterial({
+        color: 0x475569,
+        metalness: 0.3,
+        roughness: 0.7,
+      });
+
+      // 1. Connecting Boulevard Podium at Base (from blueprint section)
+      const podiumGeo = new THREE.BoxGeometry(11.5, 0.45, 4.8);
+      const podium = new THREE.Mesh(podiumGeo, concretePodiumMat);
+      podium.position.set(0, 0.22, 0);
+      group.add(podium);
+
+      // Low-rise shopping boulevard canopy between the towers
+      const canopyGeo = new THREE.CylinderGeometry(2.4, 2.4, 0.2, 24, 1, false, 0, Math.PI);
+      canopyGeo.rotateX(Math.PI / 2);
+      const canopy = new THREE.Mesh(canopyGeo, whiteSteelCrownMat);
+      canopy.position.set(0, 0.5, 0);
+      group.add(canopy);
+
+      // Function to build an equilateral triangular tower
+      function createTriangularTower(options) {
+        const {
+          x,
+          height,
+          crownHeight,
+          slopeDirection, // 1: slope up to right, -1: slope up to left
+          hasSpire,
+          spireHeight,
+          hasSetback,
+        } = options;
+
+        const towerGroup = new THREE.Group();
+        towerGroup.position.set(x, 0, 0);
+
+        // Triangular footprint shape with rounded apex vertices
+        const r = 1.6;
+        const triShape = new THREE.Shape();
+        triShape.moveTo(0, r);
+        triShape.lineTo(-r * 0.866, -r * 0.5);
+        triShape.lineTo(r * 0.866, -r * 0.5);
+        triShape.closePath();
+
+        // Extrude main tower body up to the start of the sloped crown
+        const bodyHeight = height - crownHeight;
+        const bodyGeo = new THREE.ExtrudeGeometry(triShape, {
+          depth: bodyHeight,
+          bevelEnabled: true,
+          bevelSegments: 2,
+          steps: 1,
+          bevelSize: 0.08,
+          bevelThickness: 0.08,
+        });
+        bodyGeo.rotateX(-Math.PI / 2);
+        const body = new THREE.Mesh(bodyGeo, glassBronzeMat);
+        body.position.y = 0.45;
+        towerGroup.add(body);
+
+        // 45° Diagonal Sloped Crown (signature architectural feature from blueprint)
+        // Built of triangular steel truss framing & mechanical louvers
+        const crownBaseY = 0.45 + bodyHeight;
+
+        // Sloped wedge crown
+        const crownShape = new THREE.Shape();
+        if (slopeDirection > 0) {
+          crownShape.moveTo(-r * 0.866, 0);
+          crownShape.lineTo(r * 0.866, crownHeight); // 45 degree slope up
+          crownShape.lineTo(r * 0.866, 0);
+        } else {
+          crownShape.moveTo(r * 0.866, 0);
+          crownShape.lineTo(-r * 0.866, crownHeight); // 45 degree slope up
+          crownShape.lineTo(-r * 0.866, 0);
+        }
+        crownShape.closePath();
+
+        const crownGeo = new THREE.ExtrudeGeometry(crownShape, {
+          depth: r * 1.5,
+          bevelEnabled: false,
+        });
+        crownGeo.center();
+        const crownMesh = new THREE.Mesh(crownGeo, whiteSteelCrownMat);
+        crownMesh.position.set(0, crownBaseY + crownHeight / 2, 0);
+        towerGroup.add(crownMesh);
+
+        // Louver grill pattern inside the crown wedge
+        const louverGeo = new THREE.BoxGeometry(r * 1.2, crownHeight * 0.7, 0.1);
+        const louver = new THREE.Mesh(louverGeo, darkLouverMat);
+        louver.position.set(0, crownBaseY + crownHeight * 0.45, r * 0.65);
+        towerGroup.add(louver);
+
+        // Setback notch on the shorter hotel tower (as drawn in blueprint)
+        if (hasSetback) {
+          const notchGeo = new THREE.BoxGeometry(0.6, 1.2, r * 1.2);
+          const notch = new THREE.Mesh(notchGeo, darkLouverMat);
+          notch.position.set(-r * 0.4, crownBaseY + crownHeight * 0.85, 0);
+          towerGroup.add(notch);
+        }
+
+        // Tall Spire Antenna rising from the peak of the slope (as drawn in blueprint)
+        if (hasSpire) {
+          const spireBaseX = slopeDirection > 0 ? r * 0.75 : -r * 0.75;
+          const spireGeo = new THREE.CylinderGeometry(0.04, 0.12, spireHeight, 12);
+          const spire = new THREE.Mesh(spireGeo, whiteSteelCrownMat);
+          spire.position.set(spireBaseX, crownBaseY + crownHeight + spireHeight / 2, 0);
+          towerGroup.add(spire);
+
+          // Aviation beacon at top
+          const beaconGeo = new THREE.SphereGeometry(0.08, 8, 8);
+          const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+          const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+          beacon.position.set(spireBaseX, crownBaseY + crownHeight + spireHeight, 0);
+          towerGroup.add(beacon);
+        }
+
+        // Cantilevered entrance canopy at base
+        const canopyBaseGeo = new THREE.BoxGeometry(r * 2.2, 0.12, r * 2.0);
+        const canopyBase = new THREE.Mesh(canopyBaseGeo, whiteSteelCrownMat);
+        canopyBase.position.set(0, 0.85, 0);
+        towerGroup.add(canopyBase);
+
+        return towerGroup;
+      }
+
+      // Tower 1 (Left): Jumeirah Emirates Hotel Tower (Shorter, height = 15.2)
+      const hotelTower = createTriangularTower({
+        x: -2.8,
+        height: 15.2,
+        crownHeight: 3.2,
+        slopeDirection: 1, // slopes up toward inner spine
+        hasSpire: true,
+        spireHeight: 2.8,
+        hasSetback: true,
+      });
+      group.add(hotelTower);
+
+      // Tower 2 (Right): Emirates Office Tower (Taller, height = 18.2)
+      const officeTower = createTriangularTower({
+        x: 2.8,
+        height: 18.2,
+        crownHeight: 3.8,
+        slopeDirection: -1, // slopes up toward inner spine
+        hasSpire: true,
+        spireHeight: 4.2,
+        hasSetback: false,
+      });
+      group.add(officeTower);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 6. JUMEIRAH BEACH HOTEL (THE WAVE - MATCHING IMAGES 1, 2, 5)
+    // Sweeping crescent wave silhouette sitting next to Burj Al Arab
+    // =========================================================================
+    function buildJumeirahWaveHotel() {
+      const group = new THREE.Group();
+      group.name = "jumeirah_wave_hotel_root";
+
+      // Concave sweeping crescent wave shape
+      const waveShape = new THREE.Shape();
+      waveShape.moveTo(-4.5, 0);
+      waveShape.bezierCurveTo(-3.2, 3.5, 0.5, 7.8, 4.2, 9.2); // soaring crest of the wave
+      waveShape.bezierCurveTo(3.8, 6.2, 1.8, 2.5, 0.8, 0);
+      waveShape.closePath();
+
+      const waveExtrude = {
+        depth: 2.2,
+        bevelEnabled: true,
+        bevelSegments: 4,
+        steps: 1,
+        bevelSize: 0.15,
+        bevelThickness: 0.15,
+      };
+      const waveGeo = new THREE.ExtrudeGeometry(waveShape, waveExtrude);
+      waveGeo.center();
+
+      const curtainBlue = createCurtainWallTexture({
+        theme: "cyan-blue",
+        floors: 26,
+        bays: 18,
+        darkGlass: "#082f49",
+      });
+
+      const waveMat = new THREE.MeshStandardMaterial({
+        map: curtainBlue.texture,
+        emissiveMap: curtainBlue.texture,
+        emissive: new THREE.Color(0x38bdf8),
+        emissiveIntensity: 0.75,
+        metalness: 0.88,
+        roughness: 0.18,
+      });
+
+      const waveMesh = new THREE.Mesh(waveGeo, waveMat);
+      waveMesh.position.set(0, 4.6, 0);
+      group.add(waveMesh);
+
+      // White perimeter crest rib
+      const whiteRibMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.9 });
+      const crestCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-4.5, 0, 0),
+        new THREE.Vector3(-3.2, 3.5, 0),
+        new THREE.Vector3(0.5, 7.8, 0),
+        new THREE.Vector3(4.2, 9.2, 0),
+      ]);
+      const crestGeo = new THREE.TubeGeometry(crestCurve, 32, 0.18, 12, false);
+      const crest = new THREE.Mesh(crestGeo, whiteRibMat);
+      crest.position.set(0, 4.6, 1.15);
+      group.add(crest);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 7. CAYAN TOWER (THE TWISTING TOWER - MATCHING IMAGES 1, 4, 5)
+    // 90-degree helical twisting skyscraper with titanium aerodynamic sun-shading fins
+    // =========================================================================
+    function buildCayanTwistingTower() {
+      const group = new THREE.Group();
+      group.name = "cayan_twisting_tower_root";
+
+      const floors = 36;
+      const floorH = 0.48;
+      const totalH = floors * floorH;
+
+      const curtainCyan = createCurtainWallTexture({
+        theme: "cyan-blue",
+        floors: 36,
+        bays: 12,
+        darkGlass: "#0b1528",
+      });
+
+      const glassMat = new THREE.MeshStandardMaterial({
+        map: curtainCyan.texture,
+        emissiveMap: curtainCyan.texture,
+        emissive: new THREE.Color(0x38bdf8),
+        emissiveIntensity: 0.85,
+        metalness: 0.9,
+        roughness: 0.15,
+      });
+
+      const titaniumMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        metalness: 0.95,
+        roughness: 0.1,
+      });
+
+      for (let i = 0; i < floors; i++) {
+        const twistAngle = (i / floors) * (Math.PI / 2); // 90 degree twist
+        const floorGeo = new THREE.BoxGeometry(2.2, floorH * 0.95, 2.2);
+        const floorMesh = new THREE.Mesh(floorGeo, glassMat);
+        floorMesh.position.y = i * floorH + floorH / 2;
+        floorMesh.rotation.y = twistAngle;
+        group.add(floorMesh);
+
+        // Exterior vertical titanium louvers
+        const finGeo = new THREE.BoxGeometry(0.08, floorH, 0.35);
+        const fin1 = new THREE.Mesh(finGeo, titaniumMat);
+        fin1.position.set(1.15, i * floorH + floorH / 2, 0);
+        fin1.rotation.y = twistAngle;
+        group.add(fin1);
+      }
+
+      // Cylindrical crown plant room
+      const crownGeo = new THREE.CylinderGeometry(1.05, 1.05, 0.6, 24);
+      const crownMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9 });
+      const crown = new THREE.Mesh(crownGeo, crownMat);
+      crown.position.y = totalH + 0.3;
+      group.add(crown);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 8. DUBAI FRAME (MATCHING IMAGE 3)
+    // Giant golden architectural picture frame with sky-bridge walkway
+    // =========================================================================
+    function buildDubaiFrame() {
+      const group = new THREE.Group();
+      group.name = "dubai_frame_root";
+
+      const goldMat = new THREE.MeshStandardMaterial({
+        color: 0xf59e0b,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.45,
+        metalness: 0.92,
+        roughness: 0.18,
+      });
+
+      const glassBridgeMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.5,
+        metalness: 0.8,
+        roughness: 0.1,
+        transparent: true,
+        opacity: 0.85,
+      });
+
+      const frameWidth = 8.5;
+      const frameHeight = 14.5;
+      const colW = 1.1;
+      const colD = 1.1;
+
+      // Left Column
+      const leftColGeo = new THREE.BoxGeometry(colW, frameHeight, colD);
+      const leftCol = new THREE.Mesh(leftColGeo, goldMat);
+      leftCol.position.set(-frameWidth / 2, frameHeight / 2, 0);
+      group.add(leftCol);
+
+      // Right Column
+      const rightCol = new THREE.Mesh(leftColGeo, goldMat);
+      rightCol.position.set(frameWidth / 2, frameHeight / 2, 0);
+      group.add(rightCol);
+
+      // Top Sky Bridge (with glass floor observation walkway)
+      const topBridgeGeo = new THREE.BoxGeometry(frameWidth + colW, colW, colD * 1.4);
+      const topBridge = new THREE.Mesh(topBridgeGeo, goldMat);
+      topBridge.position.set(0, frameHeight - colW / 2, 0);
+      group.add(topBridge);
+
+      const glassFloorGeo = new THREE.BoxGeometry(frameWidth * 0.85, 0.1, colD * 0.8);
+      const glassFloor = new THREE.Mesh(glassFloorGeo, glassBridgeMat);
+      glassFloor.position.set(0, frameHeight - colW + 0.05, 0);
+      group.add(glassFloor);
+
+      // Bottom Museum Podium Base
+      const bottomBaseGeo = new THREE.BoxGeometry(frameWidth + colW * 2, colW * 0.9, colD * 2.2);
+      const bottomBase = new THREE.Mesh(bottomBaseGeo, goldMat);
+      bottomBase.position.set(0, colW * 0.45, 0);
+      group.add(bottomBase);
+
+      return group;
+    }
+
+    // =========================================================================
+    // 9. ATLANTIS THE PALM (MATCHING IMAGES 1, 3, 4, 5)
+    // Grand Arabian arch resort palace with Royal Bridge Suite and turrets
+    // =========================================================================
+    function buildAtlantisThePalm() {
+      const group = new THREE.Group();
+      group.name = "atlantis_the_palm_root";
+
+      const palaceStoneMat = new THREE.MeshStandardMaterial({
+        color: 0xfed7aa, // warm Arabian terracotta sandstone
+        emissive: 0x7c2d12,
+        emissiveIntensity: 0.2,
+        roughness: 0.65,
+        metalness: 0.15,
+      });
+
+      const goldTrimMat = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        metalness: 0.9,
+        roughness: 0.2,
+      });
+
+      const winMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+
+      // Stepped palace wings
+      const leftWingGeo = new THREE.BoxGeometry(5.2, 6.5, 2.2);
+      const leftWing = new THREE.Mesh(leftWingGeo, palaceStoneMat);
+      leftWing.position.set(-5.2, 3.25, 0);
+      group.add(leftWing);
+
+      const rightWing = new THREE.Mesh(leftWingGeo, palaceStoneMat);
+      rightWing.position.set(5.2, 3.25, 0);
+      group.add(rightWing);
+
+      // Central Grand Arabian Keyhole Arch Towers
+      const towerLGeo = new THREE.BoxGeometry(2.2, 8.5, 2.4);
+      const towerL = new THREE.Mesh(towerLGeo, palaceStoneMat);
+      towerL.position.set(-1.8, 4.25, 0);
+      group.add(towerL);
+
+      const towerR = new THREE.Mesh(towerLGeo, palaceStoneMat);
+      towerR.position.set(1.8, 4.25, 0);
+      group.add(towerR);
+
+      // Royal Bridge Suite spanning across the arch (level 6 to 8)
+      const bridgeSuiteGeo = new THREE.BoxGeometry(3.6, 2.2, 2.6);
+      const bridgeSuite = new THREE.Mesh(bridgeSuiteGeo, palaceStoneMat);
+      bridgeSuite.position.set(0, 7.4, 0);
+      group.add(bridgeSuite);
+
+      // Arabian Archway (horseshoe arch curve beneath bridge)
+      const archCurve = new THREE.EllipseCurve(0, 5.0, 1.4, 2.6, 0, Math.PI, false, 0);
+      const archPoints = archCurve.getPoints(24);
+      const archShape = new THREE.Shape(archPoints);
+      archShape.lineTo(1.4, 0);
+      archShape.lineTo(-1.4, 0);
+      archShape.closePath();
+      const archGeo = new THREE.ExtrudeGeometry(archShape, { depth: 2.5, bevelEnabled: false });
+      archGeo.center();
+      const archHoleMat = new THREE.MeshBasicMaterial({ color: 0x07061d });
+      const archHole = new THREE.Mesh(archGeo, archHoleMat);
+      archHole.position.set(0, 3.2, 0);
+      group.add(archHole);
+
+      // Palatial domes & spire turrets on top
+      for (const tx of [-5.5, -1.8, 1.8, 5.5]) {
+        const domeGeo = new THREE.ConeGeometry(0.75, 1.8, 8);
+        const dome = new THREE.Mesh(domeGeo, goldTrimMat);
+        const domeY = (Math.abs(tx) > 3) ? 7.4 : 9.4;
+        dome.position.set(tx, domeY, 0);
+        group.add(dome);
+      }
+
+      return group;
+    }
+
+    // =========================================================================
+    // 10. ASSEMBLED COMPLETE DUBAI SKYLINE PANORAMA (MATCHING IMAGES 1, 2, 4, 5)
+    // Arranged from Left to Right exactly like the reference skyline drawings!
+    // Wave Hotel + Burj Al Arab + Dubai Frame + Burj Khalifa + MOTF + Cayan Twist + Emirates Towers + Atlantis
+    // =========================================================================
+    // Helper: Create Silhouetted Palm Tree (Matching Reference Image)
+    // Helper: Create Silhouetted Palm Tree (Matching Reference Image)
+    function createPalmTree(height = 4.8, leanX = 0.35, leanZ = 0.1) {
+      const treeGroup = new THREE.Group();
+      const palmDarkMat = new THREE.MeshStandardMaterial({
+        color: 0x070618, // deep midnight silhouette
+        roughness: 0.9,
+        metalness: 0.1,
+      });
+
+      // Segmented organic curved trunk
+      const segments = 12;
+      let currX = 0;
+      let currY = 0;
+      let currZ = 0;
+      for (let s = 0; s < segments; s++) {
+        const t0 = s / segments;
+        const t1 = (s + 1) / segments;
+        const r0 = 0.16 * (1.0 - t0 * 0.45);
+        const r1 = 0.16 * (1.0 - t1 * 0.45);
+        const segH = height / segments;
+
+        const segGeo = new THREE.CylinderGeometry(r1, r0, segH, 8);
+        const segMesh = new THREE.Mesh(segGeo, palmDarkMat);
+        const nextX = leanX * Math.pow(t1, 1.4);
+        const nextY = height * t1;
+        const nextZ = leanZ * Math.pow(t1, 1.4);
+
+        segMesh.position.set((currX + nextX) / 2, (currY + nextY) / 2, (currZ + nextZ) / 2);
+        segMesh.lookAt(nextX, nextY, nextZ);
+        segMesh.rotateX(Math.PI / 2);
+        treeGroup.add(segMesh);
+
+        currX = nextX;
+        currY = nextY;
+        currZ = nextZ;
+      }
+
+      // Crown of arching fan fronds
+      const crownTop = new THREE.Vector3(leanX, height, leanZ);
+      const numFronds = 14;
+      for (let f = 0; f < numFronds; f++) {
+        const angle = (f / numFronds) * Math.PI * 2 + (f % 2) * 0.15;
+        const frondLen = 1.9 + (f % 4) * 0.25;
+        const droop = 0.75 + (f % 3) * 0.3;
+
+        const frondCurve = new THREE.CatmullRomCurve3([
+          crownTop.clone(),
+          crownTop.clone().add(new THREE.Vector3(Math.cos(angle) * frondLen * 0.45, 0.4, Math.sin(angle) * frondLen * 0.45)),
+          crownTop.clone().add(new THREE.Vector3(Math.cos(angle) * frondLen, -droop, Math.sin(angle) * frondLen)),
+        ]);
+        const frondGeo = new THREE.TubeGeometry(frondCurve, 10, 0.08, 4, false);
+        const frond = new THREE.Mesh(frondGeo, palmDarkMat);
+        treeGroup.add(frond);
+
+        // Side leaflets along frond
+        const midPt = frondCurve.getPoint(0.55);
+        const leafGeo = new THREE.ConeGeometry(0.18, 0.6, 4);
+        const leafMesh = new THREE.Mesh(leafGeo, palmDarkMat);
+        leafMesh.position.copy(midPt);
+        leafMesh.rotation.set(0.3, angle, -0.4);
+        treeGroup.add(leafMesh);
+      }
+      return treeGroup;
+    }
+
+    // Helper: Create Modern Illuminated Skyline Background Tower
+    function createSkylineTower(width = 3.0, height = 18.0, depth = 3.0, colHex = 0x07091a, glowHex = 0x00f0ff) {
+      const towerGroup = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: colHex,
+        roughness: 0.35,
+        metalness: 0.85,
+      });
+      const towerMesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), bodyMat);
+      towerMesh.position.y = height / 2;
+      towerGroup.add(towerMesh);
+
+      // Glowing neon edge rods along all 4 vertical corners
+      const edgeMat = new THREE.MeshBasicMaterial({ color: glowHex });
+      const edgeCoords = [
+        [width / 2, depth / 2],
+        [-width / 2, depth / 2],
+        [width / 2, -depth / 2],
+        [-width / 2, -depth / 2],
+      ];
+      for (const [cx, cz] of edgeCoords) {
+        const edgeRod = new THREE.Mesh(new THREE.BoxGeometry(0.08, height, 0.08), edgeMat);
+        edgeRod.position.set(cx, height / 2, cz);
+        towerGroup.add(edgeRod);
+      }
+
+      // Lit neon window rows
+      const winMat = new THREE.MeshBasicMaterial({ color: glowHex });
+      const rows = Math.floor(height / 1.3);
+      for (let r = 2; r < rows - 1; r++) {
+        if (Math.random() < 0.22) continue;
+        const winGeo = new THREE.BoxGeometry(width * 0.88, 0.28, depth + 0.06);
+        const winMesh = new THREE.Mesh(winGeo, winMat);
+        winMesh.position.y = r * 1.3;
+        towerGroup.add(winMesh);
+      }
+
+      // Roof antenna spire with glowing beacon
+      const spireMat = new THREE.MeshBasicMaterial({ color: glowHex });
+      const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.1, 2.8, 8), spireMat);
+      spire.position.y = height + 1.4;
+      towerGroup.add(spire);
+
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      beacon.position.y = height + 2.8;
+      towerGroup.add(beacon);
+
+      return towerGroup;
+    }
+
+    // Helper: Create Smooth Parametric Dune Heightfield Mesh
+    function createCurvedDuneMesh(width, depth, segX, segY, heightFn, material) {
+      const geo = new THREE.PlaneGeometry(width, depth, segX, segY);
+      geo.rotateX(-Math.PI / 2);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        const y = heightFn(x, z);
+        pos.setY(i, y);
+      }
+      geo.computeVertexNormals();
+      return new THREE.Mesh(geo, material);
+    }
+
+    // =========================================================================
+    // 10. ASSEMBLED COMPLETE DUBAI SKYLINE PANORAMA (EXACT MATCH TO REFERENCE IMAGE)
+    // Left: Burj Khalifa with Laser & Node
+    // Center: Open starry sky for headline + MOTF with target node at bottom
+    // Right: Phone with 5-row Visa UI + Burj Al Arab with cyan halo ring behind it
+    // Bottom: Velvet purple dunes with sweeping dune wave on bottom-right
+    // =========================================================================
+    function buildExactAssembledScene() {
+      const sceneGroup = new THREE.Group();
+      sceneGroup.name = "dubai_night_scene_root";
+
+      // -----------------------------------------------------------------------
+      // 1. REFLECTIVE NOCTURNAL WATER (DUBAI CREEK / BAY)
+      // -----------------------------------------------------------------------
+      const waterGeo = new THREE.PlaneGeometry(96, 26, 64, 32);
+      waterGeo.rotateX(-Math.PI / 2);
+      const waterMat = new THREE.MeshStandardMaterial({
+        map: waterMatData.texture,
+        emissiveMap: waterMatData.texture,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.7,
+        metalness: 0.9,
+        roughness: 0.12,
+      });
+      const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+      waterMesh.position.set(0, 0.05, -1.5);
+      sceneGroup.add(waterMesh);
+
+      // -----------------------------------------------------------------------
+      // 2. BACKGROUND SKYLINE TOWERS (FLANKING SIDES, LEAVING CENTER SKY OPEN)
+      // -----------------------------------------------------------------------
+      const bgTowers = [
+        // Left Flank (Beside & Behind Burj Khalifa)
+        { x: -16.5, z: -8.0, w: 2.8, h: 22.0, d: 2.8, glow: 0x38bdf8 },
+        { x: -14.0, z: -6.5, w: 3.0, h: 16.0, d: 3.0, glow: 0xa855f7 },
+        { x: -7.5, z: -6.5, w: 2.4, h: 18.0, d: 2.4, glow: 0x38bdf8 },
+        // Right Flank (Beside & Behind Burj Al Arab)
+        { x: 11.5, z: -6.5, w: 2.5, h: 16.0, d: 2.5, glow: 0xa855f7 },
+        { x: 14.5, z: -7.0, w: 3.0, h: 20.0, d: 3.0, glow: 0x38bdf8 },
+        { x: 17.5, z: -7.5, w: 2.6, h: 17.0, d: 2.6, glow: 0xa855f7 },
+      ];
+      for (const t of bgTowers) {
+        const tower = createSkylineTower(t.w, t.h, t.d, 0x090d1a, t.glow);
+        tower.position.set(t.x, 0, t.z);
+        sceneGroup.add(tower);
+      }
+
+      // -----------------------------------------------------------------------
+      // 3. BURJ KHALIFA (LEFT CENTERPIECE MATCHING REFERENCE IMAGE)
+      // -----------------------------------------------------------------------
+      const burj = buildExactBurjKhalifa();
+      burj.position.set(-10.2, 0, -2.5);
+      burj.scale.set(1.05, 1.05, 1.05);
+      sceneGroup.add(burj);
+
+      // Vertical Laser Beam from Top Spire tip
+      const laserMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.85 });
+      const laserBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 14, 8), laserMat);
+      laserBeam.position.set(-10.2, 29.5, -2.5);
+      sceneGroup.add(laserBeam);
+
+      // Top Cyan Glowing Node
+      const nodeTopGeo = new THREE.SphereGeometry(0.24, 16, 16);
+      const nodeTopMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const nodeTop = new THREE.Mesh(nodeTopGeo, nodeTopMat);
+      nodeTop.position.set(-10.2, 33.5, -2.5);
+      sceneGroup.add(nodeTop);
+
+      const nodeRingGeo = new THREE.TorusGeometry(0.5, 0.06, 8, 24);
+      const nodeRingMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+      const nodeRing = new THREE.Mesh(nodeRingGeo, nodeRingMat);
+      nodeRing.position.set(-10.2, 33.5, -2.5);
+      nodeRing.rotation.x = Math.PI / 2;
+      sceneGroup.add(nodeRing);
+
+      // Middle Shaft Circular Node on Burj Khalifa
+      const midNode = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.08, 8, 24), nodeRingMat);
+      midNode.position.set(-10.2, 13.5, -2.2);
+      sceneGroup.add(midNode);
+      const midDot = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), nodeTopMat);
+      midDot.position.set(-10.2, 13.5, -2.2);
+      sceneGroup.add(midDot);
+
+      // -----------------------------------------------------------------------
+      // 4. CENTER MIDGROUND: MUSEUM OF THE FUTURE (BOTTOM-CENTER)
+      // -----------------------------------------------------------------------
+      const motf = buildExactMuseumOfTheFuture();
+      motf.position.set(0.6, -0.1, 4.0);
+      motf.scale.set(0.56, 0.56, 0.56);
+      sceneGroup.add(motf);
+
+      // Target Node hovering above Museum of the Future
+      const motfNodeRing = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.06, 8, 24), nodeRingMat);
+      motfNodeRing.position.set(0.6, 3.4, 4.0);
+      sceneGroup.add(motfNodeRing);
+      const motfNodeDot = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), nodeTopMat);
+      motfNodeDot.position.set(0.6, 3.4, 4.0);
+      sceneGroup.add(motfNodeDot);
+
+      // -----------------------------------------------------------------------
+      // 5. BURJ AL ARAB (RIGHT CENTERPIECE, DIRECTLY BEHIND PHONE)
+      // -----------------------------------------------------------------------
+      const baa = buildExactBurjAlArab();
+      baa.position.set(8.2, 0, -2.2);
+      baa.scale.set(0.98, 0.98, 0.98);
+      sceneGroup.add(baa);
+
+      // Glowing Cyan Ellipse Halo Ring hovering on Burj Al Arab Mast
+      const baaRingGeo = new THREE.TorusGeometry(1.6, 0.08, 8, 36);
+      const baaRing = new THREE.Mesh(baaRingGeo, nodeRingMat);
+      baaRing.position.set(8.5, 14.2, -2.2);
+      baaRing.rotation.x = Math.PI / 2.3;
+      baaRing.scale.set(1.3, 0.65, 1.0);
+      sceneGroup.add(baaRing);
+
+      const baaNodeDot = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 12), nodeTopMat);
+      baaNodeDot.position.set(9.6, 14.2, -2.1);
+      sceneGroup.add(baaNodeDot);
+
+      // -----------------------------------------------------------------------
+      // 6. THE LAND OF SAND: NOCTURNAL VELVET PURPLE DUNES (MATCHING REFERENCE IMAGE)
+      // -----------------------------------------------------------------------
+      const duneMat = new THREE.MeshStandardMaterial({
+        map: duneMatData.texture,
+        roughness: 0.88,
+        metalness: 0.12,
+      });
+
+      // Heightfield generator for Left Shoreline Dune Ridge
+      function getLeftDuneHeight(x, z) {
+        const normX = (x + 24) / 18;
+        const ridgeH = Math.max(0, 2.6 - normX * 1.8);
+        const crestZ = 4.8 - Math.sin(normX * Math.PI) * 1.2;
+        const distFromCrest = Math.abs(z - crestZ);
+        const falloff = Math.exp(-distFromCrest * 0.4);
+        return ridgeH * falloff + Math.sin(x * 0.18) * 0.1;
+      }
+
+      // Dune Layer A: Left Shoreline Dune Ridge
+      const duneLeft = createCurvedDuneMesh(30, 16, 36, 24, (x, z) => {
+        return getLeftDuneHeight(x - 12, z + 4.8);
+      }, duneMat);
+      duneLeft.position.set(-12.0, 0.0, 4.8);
+      sceneGroup.add(duneLeft);
+
+      // Dune Layer B: Right Dune Ridge
+      const duneRight = createCurvedDuneMesh(28, 16, 32, 24, (x, z) => {
+        const normX = (x + 14) / 28;
+        const ridgeH = Math.max(0, 0.6 + normX * 2.2);
+        const crestZ = 4.8 + Math.sin(normX * Math.PI) * 1.0;
+        const distFromCrest = Math.abs(z - crestZ);
+        const falloff = Math.exp(-distFromCrest * 0.38);
+        return ridgeH * falloff;
+      }, duneMat);
+      duneRight.position.set(12.0, 0.0, 4.8);
+      sceneGroup.add(duneRight);
+
+      // Dune Layer C: Sweeping Foreground Dune Wave (Rising from Bottom-Right)
+      const duneWave = createCurvedDuneMesh(54, 16, 42, 24, (x, z) => {
+        // High crest on the right side (x > 0)
+        let h = 0.8;
+        if (x > 2.0) {
+          const t = (x - 2.0) / 25.0;
+          h += t * t * 3.4;
+        }
+        const dist = Math.abs(z - 12.0);
+        return Math.max(0, h - dist * 0.28);
+      }, duneMat);
+      duneWave.position.set(4.0, -0.2, 11.0);
+      sceneGroup.add(duneWave);
+
+      // Glowing Neon Magenta/Cyan Crest Stroke along Sweeping Dune Wave
+      const waveCrestCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(2.0, 0.6, 12.0),
+        new THREE.Vector3(6.5, 1.4, 12.2),
+        new THREE.Vector3(11.0, 2.5, 12.5),
+        new THREE.Vector3(16.0, 3.6, 12.8),
+      ]);
+      const crestTube = new THREE.Mesh(
+        new THREE.TubeGeometry(waveCrestCurve, 32, 0.08, 8, false),
+        new THREE.MeshBasicMaterial({ color: 0xe879f9 })
+      );
+      sceneGroup.add(crestTube);
+
+      // -----------------------------------------------------------------------
+      // 7. SILHOUETTED PALM TREES (ALONG LEFT SHORELINE DUNE CREST)
+      // -----------------------------------------------------------------------
+      const palmConfigs = [
+        { x: -14.5, z: 4.8, h: 3.8, leanX: 0.25 },
+        { x: -12.5, z: 5.0, h: 3.4, leanX: -0.22 },
+        { x: -10.5, z: 4.6, h: 3.2, leanX: 0.2 },
+        { x: -8.5, z: 4.2, h: 2.8, leanX: -0.18 },
+        { x: -7.0, z: 3.8, h: 2.5, leanX: 0.15 },
+      ];
+
+      for (const p of palmConfigs) {
+        const palm = createPalmTree(p.h, p.leanX);
+        const yBase = getLeftDuneHeight(p.x, p.z);
+        palm.position.set(p.x, yBase, p.z);
+        sceneGroup.add(palm);
+      }
+
+      // -----------------------------------------------------------------------
+      // 8. MODERN TITANIUM SMARTPHONE WITH 5-ROW VISA CALCULATOR SCREEN
+      // -----------------------------------------------------------------------
+      const phoneGroup = new THREE.Group();
+      phoneGroup.name = "smartphone_device_root";
+      phoneGroup.position.set(5.2, 2.5, 5.2);
+      phoneGroup.rotation.y = -0.06;
+      phoneGroup.rotation.x = 0.04;
+
+      const pW = 4.6;
+      const pH = 9.4;
+      const pR = 0.52;
+      const pD = 0.30;
+
+      // Curved outer chassis shape with rounded corners
+      const pShape = new THREE.Shape();
+      pShape.moveTo(-pW / 2 + pR, -pH / 2);
+      pShape.lineTo(pW / 2 - pR, -pH / 2);
+      pShape.quadraticCurveTo(pW / 2, -pH / 2, pW / 2, -pH / 2 + pR);
+      pShape.lineTo(pW / 2, pH / 2 - pR);
+      pShape.quadraticCurveTo(pW / 2, pH / 2, pW / 2 - pR, pH / 2);
+      pShape.lineTo(-pW / 2 + pR, pH / 2);
+      pShape.quadraticCurveTo(-pW / 2, pH / 2, -pW / 2, pH / 2 - pR);
+      pShape.lineTo(-pW / 2, -pH / 2 + pR);
+      pShape.quadraticCurveTo(-pW / 2, -pH / 2, -pW / 2 + pR, -pH / 2);
+
+      const chassisGeo = new THREE.ExtrudeGeometry(pShape, {
+        depth: pD,
+        bevelEnabled: true,
+        bevelSegments: 6,
+        steps: 1,
+        bevelSize: 0.08,
+        bevelThickness: 0.08,
+      });
+      chassisGeo.center();
+
+      const chassisMat = new THREE.MeshStandardMaterial({
+        color: 0x0f1522, // Space black / Dark titanium
+        metalness: 0.95,
+        roughness: 0.16,
+      });
+      const chassisMesh = new THREE.Mesh(chassisGeo, chassisMat);
+      phoneGroup.add(chassisMesh);
+
+      // Hardware side buttons
+      const btnMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.95, roughness: 0.2 });
+      const powerBtn = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 0.1), btnMat);
+      powerBtn.position.set(pW / 2 + 0.08, 1.2, 0);
+      phoneGroup.add(powerBtn);
+
+      const volUpBtn = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.1), btnMat);
+      volUpBtn.position.set(-pW / 2 - 0.08, 1.0, 0);
+      phoneGroup.add(volUpBtn);
+
+      const volDownBtn = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.1), btnMat);
+      volDownBtn.position.set(-pW / 2 - 0.08, -0.1, 0);
+      phoneGroup.add(volDownBtn);
+
+      // Camera island bump on back
+      const camBump = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.8, 0.14), chassisMat);
+      camBump.position.set(-1.1, 3.2, -pD / 2 - 0.07);
+      phoneGroup.add(camBump);
+
+      // Ultra-Crisp High-Resolution 1024x2048 Screen Canvas UI (Exact match to reference image)
+      const screenCanvas = document.createElement("canvas");
+      screenCanvas.width = 1024;
+      screenCanvas.height = 2048;
+      const sctx = screenCanvas.getContext("2d");
+
+      // App viewport background
+      sctx.fillStyle = "#ffffff";
+      sctx.beginPath();
+      sctx.roundRect(16, 16, 992, 2016, 52);
+      sctx.fill();
+
+      // Top Status Bar: 19:37, 5G, Battery
+      sctx.fillStyle = "#0f172a";
+      sctx.font = "bold 44px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("19:37", 68, 105);
+
+      sctx.beginPath();
+      sctx.roundRect(850, 75, 64, 32, 8);
+      sctx.strokeStyle = "#0f172a";
+      sctx.lineWidth = 4;
+      sctx.stroke();
+      sctx.fillRect(856, 81, 44, 20); // battery level
+      sctx.fillRect(916, 85, 4, 12);  // nub
+
+      sctx.fillStyle = "#0f172a";
+      sctx.font = "bold 30px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("5G", 780, 100);
+
+      // Top Card: Visa fee calculator & ~2500 AED badge
+      sctx.fillStyle = "#f8fafc";
+      sctx.beginPath();
+      sctx.roundRect(45, 145, 934, 175, 32);
+      sctx.fill();
+      sctx.strokeStyle = "#e2e8f0";
+      sctx.lineWidth = 2.5;
+      sctx.stroke();
+
+      // Blue Calculator Icon
+      sctx.fillStyle = "#2563eb";
+      sctx.beginPath();
+      sctx.roundRect(75, 175, 110, 115, 24);
+      sctx.fill();
+      sctx.fillStyle = "#ffffff";
+      sctx.fillRect(105, 205, 50, 55);
+
+      // Title & Subtitle
+      sctx.fillStyle = "#0f172a";
+      sctx.font = "bold 42px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("Visa fee calculator", 215, 218);
+      sctx.fillStyle = "#64748b";
+      sctx.font = "28px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("Check government fees in 30 seconds", 215, 265);
+
+      // ~2500 AED green badge
+      sctx.fillStyle = "#ecfdf5";
+      sctx.beginPath();
+      sctx.roundRect(755, 175, 195, 55, 28);
+      sctx.fill();
+      sctx.strokeStyle = "#a7f3d0";
+      sctx.lineWidth = 2;
+      sctx.stroke();
+      sctx.fillStyle = "#059669";
+      sctx.font = "bold 26px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.textAlign = "center";
+      sctx.fillText("~2500 AED", 852, 212);
+      sctx.textAlign = "left";
+
+      // Segmented Toggle Pill: "New Visa" | "Renewal"
+      sctx.fillStyle = "#f1f5f9";
+      sctx.beginPath();
+      sctx.roundRect(45, 345, 934, 95, 48);
+      sctx.fill();
+
+      // Active pill (New Visa)
+      sctx.fillStyle = "#2563eb";
+      sctx.beginPath();
+      sctx.roundRect(50, 350, 460, 85, 42);
+      sctx.fill();
+      sctx.fillStyle = "#ffffff";
+      sctx.font = "bold 34px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.textAlign = "center";
+      sctx.fillText("New Visa", 280, 404);
+
+      // Inactive pill (Renewal)
+      sctx.fillStyle = "#64748b";
+      sctx.font = "bold 34px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("Renewal", 745, 404);
+      sctx.textAlign = "left";
+
+      // Section Header: "Which visa do you need?" with "Tap to calculate"
+      sctx.fillStyle = "#0f172a";
+      sctx.font = "bold 42px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.fillText("Which visa do you need?", 52, 495);
+
+      sctx.fillStyle = "#2563eb";
+      sctx.font = "bold 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      sctx.textAlign = "right";
+      sctx.fillText("Tap to calculate", 970, 495);
+      sctx.textAlign = "left";
+
+      // 5 High-Contrast Visa Cards (Exact Match to Reference Image)
+      const exactCards = [
+        {
+          title: "Property Visa",
+          sub: "750,000 AED",
+          tag: "2 year visa",
+          col: "#0284c7",
+          bg: "#f0f9ff",
+          iconChar: "🏢",
+        },
+        {
+          title: "Golden Visa",
+          sub: "2,000,000 AED",
+          tag: "10 year visa",
+          col: "#d97706",
+          bg: "#fffbeb",
+          iconChar: "⭐",
+        },
+        {
+          title: "Family Visa",
+          sub: "AED 1,150 each",
+          tag: "2 year visa",
+          col: "#059669",
+          bg: "#f0fdf4",
+          iconChar: "👥",
+        },
+        {
+          title: "Newborn Visa",
+          sub: "AED 350",
+          tag: "2 year visa",
+          col: "#db2777",
+          bg: "#fdf2f8",
+          iconChar: "👶",
+        },
+        {
+          title: "Remote Work Visa",
+          sub: "AED 2,870",
+          tag: "1 year visa",
+          col: "#7c3aed",
+          bg: "#f5f3ff",
+          iconChar: "💼",
+        },
+      ];
+
+      for (let i = 0; i < exactCards.length; i++) {
+        const c = exactCards[i];
+        const cy = 535 + i * 278;
+
+        // Card container
+        sctx.fillStyle = "#ffffff";
+        sctx.beginPath();
+        sctx.roundRect(45, cy, 934, 255, 36);
+        sctx.fill();
+        sctx.strokeStyle = "#e2e8f0";
+        sctx.lineWidth = 2.5;
+        sctx.stroke();
+
+        // Icon circle badge on left
+        sctx.fillStyle = c.bg;
+        sctx.beginPath();
+        sctx.arc(130, cy + 128, 52, 0, Math.PI * 2);
+        sctx.fill();
+        sctx.strokeStyle = c.col + "35";
+        sctx.lineWidth = 2.5;
+        sctx.stroke();
+
+        sctx.fillStyle = c.col;
+        sctx.beginPath();
+        sctx.arc(130, cy + 128, 24, 0, Math.PI * 2);
+        sctx.fill();
+
+        // Card Title & Subtitle
+        sctx.fillStyle = "#0f172a";
+        sctx.font = "bold 44px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        sctx.fillText(c.title, 215, cy + 110);
+
+        sctx.fillStyle = c.col;
+        sctx.font = "bold 34px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        sctx.fillText(c.sub, 215, cy + 172);
+
+        // Term pill badge on right
+        sctx.fillStyle = "#f8fafc";
+        sctx.beginPath();
+        sctx.roundRect(675, cy + 96, 205, 66, 33);
+        sctx.fill();
+        sctx.strokeStyle = "#cbd5e1";
+        sctx.lineWidth = 2;
+        sctx.stroke();
+
+        sctx.fillStyle = "#475569";
+        sctx.font = "bold 26px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        sctx.textAlign = "center";
+        sctx.fillText(c.tag, 778, cy + 138);
+        sctx.textAlign = "left";
+
+        // Forward Chevron Arrow Indicator
+        sctx.fillStyle = "#94a3b8";
+        sctx.font = "bold 40px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        sctx.fillText("›", 920, cy + 140);
+      }
+
+      // iOS Home Indicator bar at bottom
+      sctx.fillStyle = "#0f172a";
+      sctx.beginPath();
+      sctx.roundRect(387, 1985, 250, 10, 5);
+      sctx.fill();
+
+      // Screen mesh geometry and luminous material
+      const screenTexture = new THREE.CanvasTexture(screenCanvas);
+      screenTexture.generateMipmaps = true;
+      screenTexture.minFilter = THREE.LinearMipmapLinearFilter;
+      screenTexture.magFilter = THREE.LinearFilter;
+
+      const screenMat = new THREE.MeshStandardMaterial({
+        map: screenTexture,
+        emissiveMap: screenTexture,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.9,
+        roughness: 0.15,
+        metalness: 0.08,
+      });
+
+      const screenMesh = new THREE.Mesh(new THREE.PlaneGeometry(pW - 0.32, pH - 0.38), screenMat);
+      screenMesh.position.set(0, 0, pD / 2 + 0.09);
+      phoneGroup.add(screenMesh);
+
+      // Dynamic Island Pill Cutout on top of screen
+      const islandMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.25, 0.34, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0x000000 })
+      );
+      islandMesh.position.set(0, (pH - 0.38) / 2 - 0.38, pD / 2 + 0.11);
+      phoneGroup.add(islandMesh);
+
+      sceneGroup.add(phoneGroup);
+
+      return sceneGroup;
+    }
+
+    // =========================================================================
+    // RUN GENERATION
+    // =========================================================================
+    async function runGeneration() {
+      try {
+        log("1/8 Generating Exact Burj Khalifa (Matching Image 1)...");
+        const burj = buildExactBurjKhalifa();
+        await saveModel(burj, "burj-khalifa-v2.glb");
+
+        log("2/8 Generating Exact Museum of the Future (Matching Blueprint Section)...");
+        const motf = buildExactMuseumOfTheFuture();
+        await saveModel(motf, "museum-of-the-future-v2.glb");
+
+        log("3/8 Generating Exact Burj Al Arab (Matching Wireframe Mesh Reference)...");
+        const baa = buildExactBurjAlArab();
+        await saveModel(baa, "burj-al-arab-v2.glb");
+
+        log("4/8 Generating Exact Jumeirah Emirates Towers (Matching Blueprint Section)...");
+        const jet = buildExactJumeirahEmiratesTowers();
+        await saveModel(jet, "jumeirah-emirates-towers.glb");
+
+        log("5/8 Generating Cayan Twisting Tower...");
+        const cayan = buildCayanTwistingTower();
+        await saveModel(cayan, "cayan-twisting-tower.glb");
+
+        log("6/8 Generating Dubai Frame...");
+        const frame = buildDubaiFrame();
+        await saveModel(frame, "dubai-frame.glb");
+
+        log("7/8 Generating Atlantis The Palm...");
+        const atlantis = buildAtlantisThePalm();
+        await saveModel(atlantis, "atlantis-the-palm.glb");
+
+        log("8/8 Generating Complete Dubai Skyline Panorama...");
+        const fullScene = buildExactAssembledScene();
+        await saveModel(fullScene, "dubai-night-hero-scene.glb", "");
+
+        log("🎉 All 8 Dubai landmark models and complete skyline generated successfully!", "success");
+        window.__GENERATION_COMPLETE__ = true;
+      } catch (err) {
+        log(`Fatal generation error: ${err.message}`, "error");
+        window.__GENERATION_FAILED__ = true;
+      }
+    }
+
+    window.addEventListener("load", runGeneration);
+  </script>
+</body>
+
+</html>
