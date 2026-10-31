@@ -34,9 +34,11 @@ export function DubaiSkyline({
   const animFrameRef = useRef<number | null>(null);
 
   // Sync mode when initialMode prop changes
-  useEffect(() => {
+  const [prevInitialMode, setPrevInitialMode] = useState(initialMode);
+  if (initialMode !== prevInitialMode) {
+    setPrevInitialMode(initialMode);
     setMode(initialMode);
-  }, [initialMode]);
+  }
 
   // Rotation & Parallax state
   const rotState = useRef({
@@ -73,7 +75,7 @@ export function DubaiSkyline({
         powerPreference: "high-performance",
       });
     } catch {
-      setMode("2d");
+      setTimeout(() => setMode("2d"), 0);
       return;
     }
 

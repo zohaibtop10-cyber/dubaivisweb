@@ -97,12 +97,14 @@ export function VisaWizard({
   const [step, setStep] = useState<StepId>(initialVisa ? "details" : "visa");
 
   // Sync state when initialVisa changes
-  useEffect(() => {
+  const [prevInitialVisa, setPrevInitialVisa] = useState(initialVisa);
+  if (initialVisa !== prevInitialVisa) {
+    setPrevInitialVisa(initialVisa);
     if (initialVisa) {
       setSelectedVisa(initialVisa);
       setStep("details");
     }
-  }, [initialVisa]);
+  }
 
   // Step 2 Form Details
   const [propertyPrice, setPropertyPrice] = useState<number>(preset?.priceAed ?? 2_200_000);

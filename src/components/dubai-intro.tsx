@@ -1,37 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 
-export function DubaiIntro() {
-  const [stage, setStage] = useState<"holding" | "splitting" | "done">("holding");
-  const [mounted, setMounted] = useState(false);
+const emptySubscribe = () => () => {};
 
-  useEffect(() => {
-    setMounted(true);
-    // Phase 1: Hold the centered DUBAI image on clean white screen for ~0.9s
-    const holdTimer = setTimeout(() => {
-      setStage("splitting");
-    }, 900);
-
-    // Phase 2: Split animation runs from 0.9s to 2.1s, then unmount
-    const doneTimer = setTimeout(() => {
-      setStage("done");
-    }, 2250);
-
-    return () => {
-      clearTimeout(holdTimer);
-      clearTimeout(doneTimer);
-    };
-  }, []);
-
-  if (!mounted || stage === "done") {
-    return null;
-  }
-
-  // The shared typography view that sits centered in both the top and bottom halves
-  // The word 'DUBAI' has the exact 8K hero section background skyline inside its letters
-  const DubaiTextGraphic = () => (
+// Shared typography view declared outside render function
+function DubaiTextGraphic() {
+  return (
     <div className="w-full h-full flex flex-col items-center justify-center select-none bg-white px-4">
       <div className="relative flex items-center justify-center">
         <h1
@@ -60,6 +36,32 @@ export function DubaiIntro() {
       </p>
     </div>
   );
+}
+
+export function DubaiIntro() {
+  const [stage, setStage] = useState<"holding" | "splitting" | "done">("holding");
+  const isMounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
+
+  useEffect(() => {
+    // Phase 1: Hold the centered DUBAI image on clean white screen for ~0.9s
+    const holdTimer = setTimeout(() => {
+      setStage("splitting");
+    }, 900);
+
+    // Phase 2: Split animation runs from 0.9s to 2.1s, then unmount
+    const doneTimer = setTimeout(() => {
+      setStage("done");
+    }, 2250);
+
+    return () => {
+      clearTimeout(holdTimer);
+      clearTimeout(doneTimer);
+    };
+  }, []);
+
+  if (!isMounted || stage === "done") {
+    return null;
+  }
 
   return (
     <div
